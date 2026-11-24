@@ -1,0 +1,15 @@
+# Secrets
+.env
+
+# Real bank slips for slipeval — private data, never commit
+/slips/
+
+# Build and test output
+/bin/
+*.out
+coverage.*
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/

@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -20,7 +22,7 @@ const (
 type Config struct {
 	AppEnv          Environment   // APP_ENV, default "development"
 	HTTPAddr        string        // HTTP_ADDR, default ":8080"
-	LogLevel        string        // LOG_LEVEL, default "info"
+	LogLevel        slog.Level    // LOG_LEVEL, default "info"
 	ShutdownTimeout time.Duration // SHUTDOWN_TIMEOUT, default 10s
 }
 
@@ -35,7 +37,7 @@ func (e Environment) Validate() error {
 }
 
 // Load reads the config from environment variables, applies defaults for
-// unset values and validates the result. It returns an error if any value is
+// unset or blank values and validates the result. It returns an error if any value is
 // invalid, so the app can stop at startup instead of failing later.
 func Load() (*Config, error) {
 	shutdownTimeout, err := getEnvDuration("SHUTDOWN_TIMEOUT", time.Second*10)
@@ -43,10 +45,15 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
+	logLevel, err := getEnvLogLevel("LOG_LEVEL", slog.LevelInfo)
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+
 	cfg := &Config{
 		AppEnv:          Environment(getEnvString("APP_ENV", "development")),
 		HTTPAddr:        getEnvString("HTTP_ADDR", ":8080"),
-		LogLevel:        getEnvString("LOG_LEVEL", "info"),
+		LogLevel:        logLevel,
 		ShutdownTimeout: shutdownTimeout,
 	}
 
@@ -57,10 +64,11 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// getEnvString returns the value of key, or fallback if it is unset or empty.
+// getEnvString returns the value of key with surrounding spaces removed, or
+// fallback if it is unset or blank.
 func getEnvString(key, fallback string) string {
-	val, ok := os.LookupEnv(key)
-	if !ok || val == "" {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
 		return fallback
 	}
 
@@ -68,10 +76,10 @@ func getEnvString(key, fallback string) string {
 }
 
 // getEnvDuration parses key as a duration such as "10s" or "1m30s". It returns
-// fallback if key is unset or empty, and an error if the value is invalid or not positive.
+// fallback if key is unset or blank, and an error if the value is invalid or not positive.
 func getEnvDuration(key string, fallback time.Duration) (time.Duration, error) {
-	val, ok := os.LookupEnv(key)
-	if !ok || val == "" {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
 		return fallback, nil
 	}
 
@@ -85,4 +93,26 @@ func getEnvDuration(key string, fallback time.Duration) (time.Duration, error) {
 	}
 
 	return d, nil
+}
+
+// getEnvLogLevel parses key as a log level: debug, info, warn or error, in any
+// case. It returns fallback if key is unset or blank, and an error for unknown
+// names or offsets such as "INFO+2".
+func getEnvLogLevel(key string, fallback slog.Level) (slog.Level, error) {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return fallback, nil
+	}
+
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(val)); err != nil {
+		return 0, fmt.Errorf("invalid %s %q: %w", key, val, err)
+	}
+
+	switch level {
+	case slog.LevelDebug, slog.LevelInfo, slog.LevelWarn, slog.LevelError:
+		return level, nil
+	default:
+		return 0, fmt.Errorf("invalid %s %q: must be debug, info, warn or error", key, val)
+	}
 }

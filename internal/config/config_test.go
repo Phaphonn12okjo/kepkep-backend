@@ -1,6 +1,8 @@
 package config
 
 import (
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 )
@@ -11,14 +13,15 @@ func TestLoad(t *testing.T) {
 		env         map[string]string
 		expected    Config
 		expectedErr bool
+		errContains string
 	}{
 		{
 			name: "defaults when nothing is set",
 			env:  map[string]string{},
 			expected: Config{
-				AppEnv:          Environment("development"),
+				AppEnv:          EnvDevelopment,
 				HTTPAddr:        ":8080",
-				LogLevel:        "info",
+				LogLevel:        slog.LevelInfo,
 				ShutdownTimeout: time.Second * 10,
 			},
 			expectedErr: false,
@@ -32,9 +35,9 @@ func TestLoad(t *testing.T) {
 				"SHUTDOWN_TIMEOUT": "30s",
 			},
 			expected: Config{
-				AppEnv:          Environment("production"),
+				AppEnv:          EnvProduction,
 				HTTPAddr:        ":9090",
-				LogLevel:        "debug",
+				LogLevel:        slog.LevelDebug,
 				ShutdownTimeout: time.Second * 30,
 			},
 			expectedErr: false,
@@ -45,6 +48,7 @@ func TestLoad(t *testing.T) {
 				"APP_ENV": "producktion",
 			},
 			expectedErr: true,
+			errContains: "invalid APP_ENV",
 		},
 		{
 			name: "bad duration returns an error",
@@ -52,6 +56,7 @@ func TestLoad(t *testing.T) {
 				"SHUTDOWN_TIMEOUT": "thirteen secondssss",
 			},
 			expectedErr: true,
+			errContains: "time: invalid duration",
 		},
 		{
 			name: "negative duration returns an error",
@@ -59,6 +64,51 @@ func TestLoad(t *testing.T) {
 				"SHUTDOWN_TIMEOUT": "-5s",
 			},
 			expectedErr: true,
+			errContains: "must be greater than 0",
+		},
+		{
+			name: "invalid LOG_LEVEL returns an error",
+			env: map[string]string{
+				"LOG_LEVEL": "debucking",
+			},
+			expectedErr: true,
+			errContains: "unknown name",
+		},
+		{
+			name: "accept WARN capital letters",
+			env: map[string]string{
+				"LOG_LEVEL": "WARN",
+			},
+			expected: Config{
+				AppEnv:          EnvDevelopment,
+				HTTPAddr:        ":8080",
+				LogLevel:        slog.LevelWarn,
+				ShutdownTimeout: time.Second * 10,
+			},
+			expectedErr: false,
+		},
+		{
+			name: "invalid LOG_LEVEL = INFO+2 returns an error",
+			env: map[string]string{
+				"LOG_LEVEL": "INFO+2",
+			},
+			expectedErr: true,
+			errContains: "must be debug, info, warn or error",
+		},
+		{
+			name: "blank values use defaults",
+			env: map[string]string{
+				"HTTP_ADDR":        "  ",
+				"LOG_LEVEL":        "  ",
+				"SHUTDOWN_TIMEOUT": "  ",
+			},
+			expected: Config{
+				AppEnv:          EnvDevelopment,
+				HTTPAddr:        ":8080",
+				LogLevel:        slog.LevelInfo,
+				ShutdownTimeout: time.Second * 10,
+			},
+			expectedErr: false,
 		},
 	}
 
@@ -77,6 +127,9 @@ func TestLoad(t *testing.T) {
 			if tt.expectedErr {
 				if err == nil {
 					t.Fatalf("expected an error, got nil")
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q should contain %q", err, tt.errContains)
 				}
 				return
 			}
